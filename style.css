@@ -1,0 +1,543 @@
+const WP = 'https://wordpress.ainote.az/wp-json/wp/v2';
+const path = window.location.pathname.replace(/^\//, '').replace(/\/$/, '');
+
+function clean(html) { return html.replace(/<[^>]*>/g, '').trim(); }
+function exc(html, n = 150) { const t = clean(html); return t.length > n ? t.slice(0, n) + '…' : t; }
+
+const AZ_MONTHS = ['Yanvar','Fevral','Mart','Aprel','May','İyun','İyul','Avqust','Sentyabr','Oktyabr','Noyabr','Dekabr'];
+const AZ_MONTHS_SHORT = ['Yan','Fev','Mar','Apr','May','İyn','İyl','Avq','Sen','Okt','Noy','Dek'];
+const AZ_MONTHS_UPPER = ['YANVAR','FEVRAL','MART','APREL','MAY','İYUN','İYUL','AVQUST','SENTYABR','OKTYABR','NOYABR','DEKABR'];
+
+function fmtDate(str) {
+  const d = new Date(str);
+  return `${d.getDate()} ${AZ_MONTHS_SHORT[d.getMonth()]}, ${d.getFullYear()}`;
+}
+function fmtHeroDate(str) {
+  const d = new Date(str);
+  return `${d.getDate()} ${AZ_MONTHS[d.getMonth()].toLowerCase()}`;
+}
+function getTimeAgo(dateStr) {
+  const diff = (Date.now() - new Date(dateStr)) / 1000;
+  if (diff < 3600) return `${Math.floor(diff/60)} dəq. əvvəl`;
+  if (diff < 86400) return `${Math.floor(diff/3600)} saat əvvəl`;
+  if (diff < 2592000) return `${Math.floor(diff/86400)} gün əvvəl`;
+  return `${Math.floor(diff/2592000)} ay əvvəl`;
+}
+
+const calSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`;
+
+// ══════════════════════════════════════
+// 1. DARK / LIGHT MODE
+// ══════════════════════════════════════
+(function initTheme() {
+  const saved = localStorage.getItem('theme') || 'light';
+  document.documentElement.setAttribute('data-theme', saved);
+  updateThemeIcon(saved);
+})();
+
+function updateThemeIcon(theme) {
+  const moon = document.querySelector('.icon-moon');
+  const sun  = document.querySelector('.icon-sun');
+  if (!moon || !sun) return;
+  if (theme === 'dark') { moon.style.display = 'none'; sun.style.display = ''; }
+  else                  { moon.style.display = '';     sun.style.display = 'none'; }
+}
+
+document.getElementById('themeToggleBtn')?.addEventListener('click', function() {
+  const cur = document.documentElement.getAttribute('data-theme') || 'light';
+  const next = cur === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+  updateThemeIcon(next);
+});
+
+// ══════════════════════════════════════
+// 2. PANEL SYSTEM
+// ══════════════════════════════════════
+function setupPanel(btnId, overlayId, closeId) {
+  const btn = document.getElementById(btnId);
+  const overlay = document.getElementById(overlayId);
+  const closeBtn = document.getElementById(closeId);
+  if (!btn || !overlay) return;
+  function open() { overlay.classList.add('open'); document.body.style.overflow = 'hidden'; btn.classList.add('active'); }
+  function close() { overlay.classList.remove('open'); document.body.style.overflow = ''; btn.classList.remove('active'); }
+  btn.addEventListener('click', open);
+  if (closeBtn) closeBtn.addEventListener('click', close);
+  overlay.addEventListener('click', function(e) { if (!overlay.querySelector('.side-panel').contains(e.target)) close(); });
+  document.addEventListener('keydown', function(e) { if (e.key === 'Escape') close(); });
+  return { open, close };
+}
+
+let coffeeLoaded = false;
+const coffeeCtrl = setupPanel('coffeeBtn', 'coffeeOverlay', 'coffeeClose');
+document.getElementById('coffeeBtn')?.addEventListener('click', function() {
+  if (!coffeeLoaded) { coffeeLoaded = true; loadCoffeeNews(); }
+});
+setupPanel('statsBtn', 'statsOverlay', 'statsClose');
+setupPanel('toolsBtn', 'toolsOverlay', 'toolsClose');
+
+// Coffee date
+(function() {
+  const now = new Date();
+  const d = document.getElementById('panelDayNum'), m = document.getElementById('panelMonth'), y = document.getElementById('panelYear');
+  if (d) d.textContent = now.getDate();
+  if (m) m.textContent = AZ_MONTHS_UPPER[now.getMonth()];
+  if (y) y.textContent = now.getFullYear();
+})();
+
+function loadCoffeeNews() {
+  fetch(`${WP}/posts?_embed&per_page=5`)
+    .then(r => r.json())
+    .then(posts => {
+      if (!posts.length) return;
+      const list = document.getElementById('coffeeNewsList');
+      const bgEl = document.getElementById('coffeeBgImg');
+      list.innerHTML = '';
+      const withImgs = posts.filter(p => p._embedded?.['wp:featuredmedia']?.[0]?.source_url);
+      if (withImgs.length && bgEl) {
+        const pick = withImgs[Math.floor(Math.random() * withImgs.length)];
+        bgEl.innerHTML = `<img src="${pick._embedded['wp:featuredmedia'][0].source_url}" alt="">`;
+      }
+      posts.forEach(post => {
+        const words = clean(post.title.rendered).split(' ');
+        const formattedText = words.length > 2
+          ? `<strong>${words.slice(0,2).join(' ')}</strong> ${words.slice(2).join(' ')}`
+          : `<strong>${words.join(' ')}</strong>`;
+        const item = document.createElement('div');
+        item.className = 'coffee-item';
+        item.innerHTML = `<div class="coffee-item-line"><div class="coffee-dot"></div><div class="coffee-vline"></div></div><div class="coffee-item-text">${formattedText}</div>`;
+        list.appendChild(item);
+      });
+    })
+    .catch(() => {
+      const list = document.getElementById('coffeeNewsList');
+      if (list) list.innerHTML = '<div class="panel-loading"><span>Yüklənə bilmədi.</span></div>';
+    });
+}
+
+// ══════════════════════════════════════
+// 3. SEARCH
+// ══════════════════════════════════════
+const searchToggleBtn = document.getElementById('searchToggleBtn');
+const searchBarWrap   = document.getElementById('searchBarWrap');
+const searchInput     = document.getElementById('searchInput');
+const searchResults   = document.getElementById('searchResults');
+let searchTimeout;
+
+function openSearch()  { searchBarWrap.classList.add('open'); searchToggleBtn.classList.add('active'); setTimeout(() => searchInput?.focus(), 100); }
+function closeSearch() { searchBarWrap.classList.remove('open'); searchToggleBtn.classList.remove('active'); if (searchResults) searchResults.innerHTML = ''; if (searchInput) searchInput.value = ''; }
+
+searchToggleBtn?.addEventListener('click', function() { searchBarWrap.classList.contains('open') ? closeSearch() : openSearch(); });
+document.getElementById('searchCloseBtn')?.addEventListener('click', closeSearch);
+
+function doSearch(q) {
+  if (!q || q.length < 2) { searchResults.innerHTML = ''; return; }
+  searchResults.innerHTML = '<div class="search-loading">Axtarılır...</div>';
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(() => {
+    fetch(`${WP}/posts?search=${encodeURIComponent(q)}&_embed&per_page=8`)
+      .then(r => r.json())
+      .then(posts => {
+        if (!posts.length) { searchResults.innerHTML = '<div class="search-no-result">Nəticə tapılmadı.</div>'; return; }
+        searchResults.innerHTML = '';
+        posts.forEach(post => {
+          const img = post._embedded?.['wp:featuredmedia']?.[0]?.source_url || '';
+          const item = document.createElement('a');
+          item.href = `/${post.slug}`; item.className = 'search-result-item';
+          item.innerHTML = `<div class="search-result-img">${img ? `<img src="${img}" alt="" loading="lazy">` : ''}</div><div class="search-result-text"><h4>${post.title.rendered}</h4><small>${fmtDate(post.date)}</small></div>`;
+          searchResults.appendChild(item);
+        });
+      }).catch(() => { searchResults.innerHTML = '<div class="search-no-result">Xəta baş verdi.</div>'; });
+  }, 350);
+}
+searchInput?.addEventListener('input', function() { doSearch(this.value.trim()); });
+searchInput?.addEventListener('keydown', function(e) { if (e.key === 'Enter') doSearch(this.value.trim()); });
+document.getElementById('searchSubmitBtn')?.addEventListener('click', () => doSearch(searchInput?.value.trim() || ''));
+
+// ══════════════════════════════════════
+// 4. SHARE BUTTON HELPER
+// ══════════════════════════════════════
+function showShareToast(msg) {
+  const t = document.getElementById('shareToast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('visible');
+  setTimeout(() => t.classList.remove('visible'), 2500);
+}
+
+function sharePost(url, title) {
+  // Prefer native share on mobile
+  if (navigator.share) {
+    navigator.share({ title, url }).catch(() => {});
+    return;
+  }
+  // Fallback: show share menu
+  showShareMenu(url, title);
+}
+
+function showShareMenu(url, title) {
+  // Remove existing
+  document.querySelector('.share-popup')?.remove();
+  const popup = document.createElement('div');
+  popup.className = 'share-popup';
+  const waUrl = `https://wa.me/?text=${encodeURIComponent(title + ' ' + url)}`;
+  const twUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(title)}&url=${encodeURIComponent(url)}`;
+  popup.innerHTML = `
+    <a href="${waUrl}" target="_blank" class="share-opt share-wa">
+      <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+      WhatsApp
+    </a>
+    <a href="${twUrl}" target="_blank" class="share-opt share-tw">
+      <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.747l7.73-8.835L1.254 2.25H8.08l4.259 5.63zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+      Twitter
+    </a>
+    <button class="share-opt share-copy" id="shareCopyBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      Link kopyala
+    </button>`;
+  document.body.appendChild(popup);
+
+  document.getElementById('shareCopyBtn')?.addEventListener('click', () => {
+    navigator.clipboard.writeText(url).then(() => {
+      showShareToast('🔗 Link kopyalandı!');
+      popup.remove();
+    });
+  });
+
+  // Close on outside click
+  setTimeout(() => {
+    document.addEventListener('click', function handler(e) {
+      if (!popup.contains(e.target)) { popup.remove(); document.removeEventListener('click', handler); }
+    });
+  }, 50);
+}
+
+// ══════════════════════════════════════
+// 5. NEWSLETTER
+// ══════════════════════════════════════
+document.getElementById('newsletterSubmit')?.addEventListener('click', async function() {
+  const emailEl   = document.getElementById('newsletterEmail');
+  const email     = emailEl?.value.trim();
+  const formEl    = document.getElementById('newsletterForm');
+  const successEl = document.getElementById('newsletterSuccess');
+  const btn       = document.getElementById('newsletterSubmit');
+
+  if (!email || !email.includes('@')) {
+    emailEl.style.borderColor = '#e53e3e';
+    setTimeout(() => emailEl.style.borderColor = '', 2000);
+    return;
+  }
+
+  // Loading state
+  btn.textContent = '...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('https://wordpress.ainote.az/wp-json/ainote/v1/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email })
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (res.ok && data.success) {
+      if (formEl) formEl.style.display = 'none';
+      if (successEl) {
+        successEl.style.display = 'flex';
+        if (data.message?.includes('Artıq')) successEl.textContent = '✅ Siz artıq abunəsiniz!';
+      }
+    } else {
+        emailEl.style.borderColor = '#e53e3e';
+        btn.textContent = 'Xəta baş verdi';
+        setTimeout(() => { btn.textContent = 'Abunə ol'; btn.disabled = false; emailEl.style.borderColor = ''; }, 3000);
+      }
+    }
+  } catch (e) {
+    emailEl.style.borderColor = '#e53e3e';
+    btn.textContent = 'Xəta baş verdi';
+    setTimeout(() => { btn.textContent = 'Abunə ol'; btn.disabled = false; emailEl.style.borderColor = ''; }, 3000);
+  }
+});
+
+document.getElementById('newsletterEmail')?.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') document.getElementById('newsletterSubmit')?.click();
+});
+
+// ══════════════════════════════════════
+// 6. PUSH NOTIFICATIONS
+// ══════════════════════════════════════
+(function initNotifBanner() {
+  const banner = document.getElementById('notifBanner');
+  if (!banner) return;
+  // Only show if not already decided and browser supports notifications
+  if (!('Notification' in window) || Notification.permission !== 'default') return;
+  if (localStorage.getItem('ainote_notif_asked')) return;
+
+  setTimeout(() => banner.classList.add('visible'), 3000);
+
+  document.getElementById('notifAllow')?.addEventListener('click', function() {
+    Notification.requestPermission().then(perm => {
+      localStorage.setItem('ainote_notif_asked', '1');
+      banner.classList.remove('visible');
+      if (perm === 'granted') {
+        // Register service worker for push
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.ready.then(reg => {
+            // Show a welcome notification
+            reg.showNotification('ainote.az', {
+              body: 'AI xəbərləri üçün bildirişlər aktivdir! ✅',
+              icon: '/icons/icon-192.png',
+              badge: '/icons/icon-72.png'
+            });
+          });
+        }
+      }
+    });
+  });
+
+  document.getElementById('notifDeny')?.addEventListener('click', function() {
+    localStorage.setItem('ainote_notif_asked', '1');
+    banner.classList.remove('visible');
+  });
+})();
+
+// ══════════════════════════════════════
+// 7. SERVICE WORKER (PWA)
+// ══════════════════════════════════════
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
+// ══════════════════════════════════════
+// 8. SINGLE POST
+// ══════════════════════════════════════
+if (path) {
+  // Hide homepage sections
+  document.querySelector('.hero-section')?.style?.setProperty && (document.querySelector('.hero-section').style.display = 'none');
+  document.querySelector('.main-layout') && (document.querySelector('.main-layout').style.display = 'none');
+  document.querySelector('.infinite-sentinel') && (document.querySelector('.infinite-sentinel').style.display = 'none');
+
+  fetch(`${WP}/posts?slug=${path}&_embed`)
+    .then(r => r.json())
+    .then(async posts => {
+      const p = posts[0];
+      if (!p) return;
+
+      const img    = p._embedded?.['wp:featuredmedia']?.[0]?.source_url || '';
+      const cats   = p._embedded?.['wp:term']?.[0] || [];
+      const catName = cats[0]?.name || 'Xəbər';
+      const catSlug = cats[0]?.slug || '#';
+      const title   = p.title.rendered;
+      const postUrl = window.location.href;
+
+      let related = [];
+      if (cats[0]?.id) {
+        const r2 = await fetch(`${WP}/posts?_embed&categories=${cats[0].id}&per_page=4&exclude=${p.id}`);
+        related = await r2.json().catch(() => []);
+      }
+
+      const mainEl = document.querySelector('main.container');
+      mainEl.style.maxWidth = '100%';
+      mainEl.style.padding  = '0';
+
+      mainEl.innerHTML = `
+        <div class="sp-hero" ${img ? `style="background-image:url('${img}')"` : ''}>
+          <div class="sp-hero-overlay"></div>
+          <div class="sp-hero-content">
+            <div class="sp-hero-inner">
+              <div class="sp-meta-top">
+                <span class="sp-cat-badge">${fmtDate(p.date)}</span>
+              </div>
+              <h1 class="sp-title">${title}</h1>
+              <!-- Share button in hero -->
+              <button class="sp-share-btn" id="spShareBtn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                Paylaş
+              </button>
+            </div>
+          </div>
+          <div class="sp-hero-bar"></div>
+        </div>
+        <div class="sp-layout">
+          <article class="sp-body-wrap">
+            <div class="sp-body">${p.content.rendered}</div>
+            <div class="sp-bottom-share">
+              <span>Bu xəbəri paylaş:</span>
+              <a href="https://wa.me/?text=${encodeURIComponent(clean(title)+' '+postUrl)}" target="_blank" class="sp-share-wa">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                WhatsApp
+              </a>
+              <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent(clean(title))}&url=${encodeURIComponent(postUrl)}" target="_blank" class="sp-share-tw">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.747l7.73-8.835L1.254 2.25H8.08l4.259 5.63zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                Twitter
+              </a>
+              <button class="sp-share-copy" id="spCopyBtn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                Link kopyala
+              </button>
+            </div>
+            <a href="/" class="sp-back-btn">← Geri qayıt</a>
+          </article>
+          <aside class="sp-sidebar">
+            <div class="sp-sidebar-section">
+              <h3 class="sp-sidebar-title">ÇOX OXUNAN</h3>
+              <div id="spMostRead" class="sp-sidebar-list"></div>
+            </div>
+            ${related.length ? `<div class="sp-sidebar-section" style="margin-top:28px"><h3 class="sp-sidebar-title">ƏLAQƏLI XƏBƏRLƏR</h3><div id="spRelated" class="sp-sidebar-list"></div></div>` : ''}
+          </aside>
+        </div>`;
+
+      // Hero share button
+      document.getElementById('spShareBtn')?.addEventListener('click', () => sharePost(postUrl, clean(title)));
+
+      // Copy button
+      document.getElementById('spCopyBtn')?.addEventListener('click', () => {
+        navigator.clipboard.writeText(postUrl).then(() => showShareToast('🔗 Link kopyalandı!'));
+      });
+
+      // Sidebar: most read
+      fetch(`${WP}/posts?_embed&per_page=5`)
+        .then(r => r.json())
+        .then(mrPosts => {
+          const el = document.getElementById('spMostRead');
+          if (!el) return;
+          mrPosts.forEach(mp => {
+            const mImg = mp._embedded?.['wp:featuredmedia']?.[0]?.source_url || '';
+            el.innerHTML += `<a href="/${mp.slug}" class="sp-sidebar-item"><div class="sp-sidebar-img">${mImg ? `<img src="${mImg}" alt="" loading="lazy">` : ''}</div><div class="sp-sidebar-text"><h4>${mp.title.rendered}</h4><small>${fmtDate(mp.date)}</small></div></a>`;
+          });
+        });
+
+      // Sidebar: related
+      if (related.length) {
+        const relEl = document.getElementById('spRelated');
+        if (relEl) related.slice(0,4).forEach(rp => {
+          const rImg = rp._embedded?.['wp:featuredmedia']?.[0]?.source_url || '';
+          relEl.innerHTML += `<a href="/${rp.slug}" class="sp-sidebar-item"><div class="sp-sidebar-img">${rImg ? `<img src="${rImg}" alt="" loading="lazy">` : ''}</div><div class="sp-sidebar-text"><h4>${rp.title.rendered}</h4><small>${fmtDate(rp.date)}</small></div></a>`;
+        });
+      }
+
+      // ── READ PROGRESS BAR ──
+      const bar = document.getElementById('readProgressBar');
+      if (bar) {
+        function updateProgress() {
+          const docH = document.documentElement.scrollHeight - window.innerHeight;
+          const pct  = docH > 0 ? Math.min(100, (window.scrollY / docH) * 100) : 0;
+          bar.style.width = pct + '%';
+        }
+        window.addEventListener('scroll', updateProgress, { passive: true });
+        updateProgress();
+      }
+    });
+
+// ══════════════════════════════════════
+// 9. HOMEPAGE
+// ══════════════════════════════════════
+} else {
+  let currentPage = 1;
+  let isLoading   = false;
+  let hasMore     = true;
+  const PER_PAGE  = 9;
+
+  function buildNewsItem(post) {
+    const img   = post._embedded?.['wp:featuredmedia']?.[0]?.source_url || '';
+    const pUrl  = window.location.origin + '/' + post.slug;
+    const title = post.title.rendered;
+    const article = document.createElement('article');
+    article.className = 'news-item';
+    article.innerHTML = `
+      <a href="/${post.slug}" class="news-item-img">
+        ${img ? `<img src="${img}" alt="${clean(title)}" loading="lazy">` : ''}
+      </a>
+      <div class="news-content">
+        <a href="/${post.slug}"><h3>${title}</h3></a>
+        <p>${exc(post.excerpt.rendered)}</p>
+        <div class="news-item-footer">
+          <span class="news-date-badge">${fmtDate(post.date)}</span>
+          <button class="news-share-btn" data-url="${pUrl}" data-title="${clean(title).replace(/"/g,'&quot;')}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+            Paylaş
+          </button>
+        </div>
+      </div>`;
+    // Share button handler
+    article.querySelector('.news-share-btn').addEventListener('click', function(e) {
+      e.preventDefault();
+      sharePost(this.dataset.url, this.dataset.title);
+    });
+    return article;
+  }
+
+  function loadPosts(page) {
+    if (isLoading || !hasMore) return;
+    isLoading = true;
+
+    // Show skeleton on first load
+    const newsList = document.getElementById('newsList') || document.querySelector('.news-list');
+
+    fetch(`${WP}/posts?_embed&per_page=${PER_PAGE}&page=${page}`)
+      .then(r => {
+        const total = parseInt(r.headers.get('X-WP-TotalPages') || '1');
+        if (page >= total) hasMore = false;
+        return r.json();
+      })
+      .then(posts => {
+        if (!posts.length) { hasMore = false; isLoading = false; return; }
+
+        if (page === 1) {
+          // Hero
+          const heroSection = document.querySelector('.hero-section');
+          const [h1, h2, h3] = posts;
+          const img1 = h1._embedded?.['wp:featuredmedia']?.[0]?.source_url || '';
+          const img2 = h2?._embedded?.['wp:featuredmedia']?.[0]?.source_url || '';
+          const img3 = h3?._embedded?.['wp:featuredmedia']?.[0]?.source_url || '';
+          heroSection.innerHTML = `
+            <a href="/${h1.slug}" class="hero-card featured">
+              ${img1 ? `<img src="${img1}" alt="${clean(h1.title.rendered)}">` : ''}
+              <div class="hero-overlay"><div class="read-time">${calSVG} ${fmtHeroDate(h1.date)}</div><h2>${h1.title.rendered}</h2><p>${exc(h1.excerpt.rendered, 120)}</p></div>
+            </a>
+            <div class="hero-right">
+              ${h2 ? `<a href="/${h2.slug}" class="hero-card">${img2 ? `<img src="${img2}" alt="">` : ''}<div class="hero-overlay"><div class="read-time">${calSVG} ${fmtHeroDate(h2.date)}</div><h2>${h2.title.rendered}</h2></div></a>` : ''}
+              ${h3 ? `<a href="/${h3.slug}" class="hero-card">${img3 ? `<img src="${img3}" alt="">` : ''}<div class="hero-overlay"><div class="read-time">${calSVG} ${fmtHeroDate(h3.date)}</div><h2>${h3.title.rendered}</h2></div></a>` : ''}
+            </div>`;
+
+          // News list (skip first 3 used in hero)
+          newsList.innerHTML = '';
+          posts.slice(3).forEach(post => newsList.appendChild(buildNewsItem(post)));
+
+          // Sidebar
+          const sidebarList = document.querySelector('.sidebar-list');
+          if (sidebarList) {
+            sidebarList.innerHTML = '';
+            posts.slice(0, 5).forEach(post => {
+              const img = post._embedded?.['wp:featuredmedia']?.[0]?.source_url || '';
+              const a = document.createElement('article');
+              a.className = 'sidebar-item';
+              a.innerHTML = `<a href="/${post.slug}" class="sidebar-item-img">${img ? `<img src="${img}" alt="" loading="lazy">` : ''}</a><a href="/${post.slug}"><h4>${post.title.rendered}</h4></a>`;
+              sidebarList.appendChild(a);
+            });
+          }
+        } else {
+          // Infinite scroll: append all
+          posts.forEach(post => newsList.appendChild(buildNewsItem(post)));
+        }
+        isLoading = false;
+      })
+      .catch(() => { isLoading = false; });
+  }
+
+  // Initial load
+  loadPosts(1);
+
+  // Infinite scroll observer
+  const sentinel = document.getElementById('infiniteSentinel');
+  if (sentinel && 'IntersectionObserver' in window) {
+    const observer = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && !isLoading && hasMore) {
+        currentPage++;
+        loadPosts(currentPage);
+      }
+    }, { rootMargin: '300px' });
+    observer.observe(sentinel);
+  }
+}
